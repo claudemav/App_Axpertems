@@ -30,7 +30,11 @@ from .const import (
     CONF_DEFICIT_DELAY_OFF,
     CONF_DEFICIT_DELAY_ON,
     CONF_NIGHT_START,
+    CONF_RESTORE_DELAY_TIER1,
+    CONF_RESTORE_DELAY_TIER2,
+    CONF_RESTORE_DELAY_TIER3,
     CONF_SOC_THRESHOLD,
+    CONF_SOC_THRESHOLD_SHEDDING,
     DEFAULT_OPTIONS,
     DOMAIN,
 )
@@ -128,35 +132,65 @@ class AxpertConfigSensorDescription(SensorEntityDescription):
     default: Any
 
 
+# EntityCategory.CONFIG est INTERDIT sur le domaine sensor par HA (une
+# entité "config" doit être modifiable — number/select/switch — pas un
+# capteur en lecture seule). DIAGNOSTIC est la catégorie correcte ici.
 CONFIG_SENSOR_DESCRIPTIONS: tuple[AxpertConfigSensorDescription, ...] = (
     AxpertConfigSensorDescription(
         key="config_soc_threshold", name="Axpert Config SOC Threshold",
         icon="mdi:battery-heart-variant", native_unit_of_measurement=PERCENTAGE,
-        entity_category=EntityCategory.CONFIG,
+        entity_category=EntityCategory.DIAGNOSTIC,
         option_key=CONF_SOC_THRESHOLD, default=DEFAULT_OPTIONS[CONF_SOC_THRESHOLD],
     ),
     AxpertConfigSensorDescription(
         key="config_battery_critical_threshold", name="Axpert Config Battery Critical Threshold",
         icon="mdi:battery-alert", native_unit_of_measurement=PERCENTAGE,
-        entity_category=EntityCategory.CONFIG,
+        entity_category=EntityCategory.DIAGNOSTIC,
         option_key=CONF_BATTERY_CRITICAL_THRESHOLD, default=DEFAULT_OPTIONS[CONF_BATTERY_CRITICAL_THRESHOLD],
     ),
     AxpertConfigSensorDescription(
         key="config_night_start", name="Axpert Config Night Start",
-        icon="mdi:clock-time-eleven", entity_category=EntityCategory.CONFIG,
+        icon="mdi:clock-time-eleven", entity_category=EntityCategory.DIAGNOSTIC,
         option_key=CONF_NIGHT_START, default=DEFAULT_OPTIONS[CONF_NIGHT_START],
     ),
     AxpertConfigSensorDescription(
         key="config_deficit_delay_on", name="Axpert Config Deficit Delay On",
         icon="mdi:timer-sand", native_unit_of_measurement=UnitOfTime.MINUTES,
-        entity_category=EntityCategory.CONFIG,
+        entity_category=EntityCategory.DIAGNOSTIC,
         option_key=CONF_DEFICIT_DELAY_ON, default=DEFAULT_OPTIONS[CONF_DEFICIT_DELAY_ON],
     ),
     AxpertConfigSensorDescription(
         key="config_deficit_delay_off", name="Axpert Config Deficit Delay Off",
         icon="mdi:timer-sand", native_unit_of_measurement=UnitOfTime.MINUTES,
-        entity_category=EntityCategory.CONFIG,
+        entity_category=EntityCategory.DIAGNOSTIC,
         option_key=CONF_DEFICIT_DELAY_OFF, default=DEFAULT_OPTIONS[CONF_DEFICIT_DELAY_OFF],
+    ),
+    # Nouveaux (point #7) : seuil de délestage dédié + délais de
+    # restauration par tier, référencés depuis longtemps dans
+    # axpert_brain_shedding.yaml mais absents ici jusqu'à présent.
+    AxpertConfigSensorDescription(
+        key="config_soc_threshold_delestage", name="Axpert Config SOC Threshold Delestage",
+        icon="mdi:battery-arrow-down", native_unit_of_measurement=PERCENTAGE,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        option_key=CONF_SOC_THRESHOLD_SHEDDING, default=DEFAULT_OPTIONS[CONF_SOC_THRESHOLD_SHEDDING],
+    ),
+    AxpertConfigSensorDescription(
+        key="config_restore_delay_tier1", name="Axpert Config Restore Delay Tier1",
+        icon="mdi:timer-sand", native_unit_of_measurement=UnitOfTime.SECONDS,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        option_key=CONF_RESTORE_DELAY_TIER1, default=DEFAULT_OPTIONS[CONF_RESTORE_DELAY_TIER1],
+    ),
+    AxpertConfigSensorDescription(
+        key="config_restore_delay_tier2", name="Axpert Config Restore Delay Tier2",
+        icon="mdi:timer-sand", native_unit_of_measurement=UnitOfTime.SECONDS,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        option_key=CONF_RESTORE_DELAY_TIER2, default=DEFAULT_OPTIONS[CONF_RESTORE_DELAY_TIER2],
+    ),
+    AxpertConfigSensorDescription(
+        key="config_restore_delay_tier3", name="Axpert Config Restore Delay Tier3",
+        icon="mdi:timer-sand", native_unit_of_measurement=UnitOfTime.SECONDS,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        option_key=CONF_RESTORE_DELAY_TIER3, default=DEFAULT_OPTIONS[CONF_RESTORE_DELAY_TIER3],
     ),
 )
 

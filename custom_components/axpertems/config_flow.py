@@ -19,8 +19,12 @@ from .const import (
     CONF_DEFICIT_DELAY_ON,
     CONF_NIGHT_START,
     CONF_PORT,
+    CONF_RESTORE_DELAY_TIER1,
+    CONF_RESTORE_DELAY_TIER2,
+    CONF_RESTORE_DELAY_TIER3,
     CONF_SCAN_INTERVAL,
     CONF_SOC_THRESHOLD,
+    CONF_SOC_THRESHOLD_SHEDDING,
     DEFAULT_BAUDRATE,
     DEFAULT_OPTIONS,
     DEFAULT_SCAN_INTERVAL,
@@ -76,9 +80,7 @@ class AxpertEMSConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class AxpertEMSOptionsFlow(config_entries.OptionsFlow):
-    """Un seul écran : seuils du moteur de décision. Les charges pilotées
-    (délestage) sont gérées via Labels HA côté axpert_brain_shedding.yaml,
-    plus par cette intégration."""
+    """Un seul écran : seuils du moteur de décision."""
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         current = {**DEFAULT_OPTIONS, **self.config_entry.options}
@@ -96,6 +98,18 @@ class AxpertEMSOptionsFlow(config_entries.OptionsFlow):
                 vol.Optional(CONF_DEFICIT_DELAY_ON, default=current[CONF_DEFICIT_DELAY_ON]): vol.Coerce(int),
                 vol.Optional(CONF_DEFICIT_DELAY_OFF, default=current[CONF_DEFICIT_DELAY_OFF]): vol.Coerce(int),
                 vol.Optional(CONF_NIGHT_START, default=current[CONF_NIGHT_START]): str,
+                vol.Optional(
+                    CONF_SOC_THRESHOLD_SHEDDING, default=current[CONF_SOC_THRESHOLD_SHEDDING]
+                ): vol.Coerce(float),
+                vol.Optional(
+                    CONF_RESTORE_DELAY_TIER1, default=current[CONF_RESTORE_DELAY_TIER1]
+                ): vol.Coerce(int),
+                vol.Optional(
+                    CONF_RESTORE_DELAY_TIER2, default=current[CONF_RESTORE_DELAY_TIER2]
+                ): vol.Coerce(int),
+                vol.Optional(
+                    CONF_RESTORE_DELAY_TIER3, default=current[CONF_RESTORE_DELAY_TIER3]
+                ): vol.Coerce(int),
             }
         )
         return self.async_show_form(step_id="init", data_schema=schema)

@@ -34,9 +34,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await coordinator.async_fetch_supported_currents()
 
     # Le "cerveau" décisionnel est entièrement porté par les automations
-    # YAML (packages/axpert_brain_*.yaml). decision.py/engine.py restent
-    # dans le dépôt comme référence testée (31 tests) mais ne font plus
-    # partie du composant chargé par HA.
+    # YAML (packages/axpert_brain_*.yaml). Pas de AxpertEnergyManager ici.
 
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = {"coordinator": coordinator}

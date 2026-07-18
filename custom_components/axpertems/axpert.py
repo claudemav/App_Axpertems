@@ -46,8 +46,6 @@ class AxpertClient:
         self._serial: serial.Serial | None = None
         self._lock = threading.Lock()
 
-    # -- gestion du port -----------------------------------------------
-
     def open(self) -> None:
         with self._lock:
             if self._serial and self._serial.is_open:
@@ -75,8 +73,6 @@ class AxpertClient:
 
     def __exit__(self, *exc_info: object) -> None:
         self.close()
-
-    # -- I/O bas niveau (appelé uniquement sous verrou, via execute()) ---
 
     def _write(self, frame: bytes) -> None:
         assert self._serial is not None
@@ -145,8 +141,6 @@ class AxpertClient:
             assert last_error is not None
             raise last_error
 
-    # -- API haut niveau : lecture ---------------------------------------
-
     def get_qpigs(self) -> dict[str, Any]:
         return protocol.parse_qpigs(self.execute("QPIGS"))
 
@@ -157,15 +151,12 @@ class AxpertClient:
         return protocol.parse_qmod(self.execute("QMOD"))
 
     def get_realtime_data(self) -> dict[str, Any]:
-        """QPIGS + QMOD — à lire à chaque cycle de poll (30s)."""
         return {"qpigs": self.get_qpigs(), "qmod": self.get_qmod()}
 
     def get_settings(self) -> dict[str, Any]:
-        """QPIRI — change rarement, pas besoin de le lire à chaque cycle."""
         return {"qpiri": self.get_qpiri()}
 
     def get_all(self) -> dict[str, Any]:
-        """Conservé pour compatibilité (config_flow._test_connection)."""
         return {**self.get_realtime_data(), **self.get_settings()}
 
     def get_supported_max_charging_currents(self) -> list[int]:
@@ -173,8 +164,6 @@ class AxpertClient:
 
     def get_supported_max_utility_charging_currents(self) -> list[int]:
         return protocol.parse_current_options(self.execute("QMUCHGCR"))
-
-    # -- API haut niveau : écriture ---------------------------------------
 
     def set_output_source_priority(self, mode: str) -> protocol.AckResponse:
         if mode not in protocol.OUTPUT_MODE_COMMANDS:

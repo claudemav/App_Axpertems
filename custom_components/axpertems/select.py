@@ -79,9 +79,6 @@ class AxpertChargerPrioritySelect(AxpertEntity, SelectEntity):
 
 
 class AxpertMaxChargingCurrentSelect(AxpertEntity, SelectEntity):
-    """MCHGC — n'expose que les paliers RÉELLEMENT acceptés par CET
-    onduleur (lus via QMCHGCR au démarrage), au lieu de 0-100A."""
-
     _attr_icon = "mdi:current-dc"
 
     def __init__(self, coordinator: AxpertCoordinator) -> None:
