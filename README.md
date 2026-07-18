@@ -7,6 +7,19 @@ Intégration Home Assistant native pour onduleurs Axpert/Voltronic compatibles P
 - `custom_components/axpertems/` — le driver : communication série (PI30), capteurs, sélecteurs. Aucune logique de décision énergétique ici.
 - `packages/` — le "Brain" : automations YAML qui décident du mode de sortie, du délestage, de la priorité de charge, etc. À copier dans votre dossier `packages/` Home Assistant.
 
+Ces deux dossiers sont à la **racine du dépôt**, au même niveau — ni `README.md` ni `hacs.json` ne vont à l'intérieur de `custom_components/axpertems/` :
+
+```text
+App_Axpertems/
+├── README.md
+├── hacs.json
+├── custom_components/
+│   └── axpertems/
+│       └── ...
+└── packages/
+    └── ...
+```
+
 ## Installation du composant
 
 ### Manuelle
@@ -18,7 +31,14 @@ Intégration Home Assistant native pour onduleurs Axpert/Voltronic compatibles P
 ### Via HACS (dépôt personnalisé)
 1. HACS > Intégrations > ⋮ > Dépôts personnalisés.
 2. URL : `https://github.com/claudemav/App_Axpertems`, catégorie "Intégration".
-3. Installez "AxpertEMS", redémarrez, puis suivez les étapes manuelles ci-dessus à partir de l'étape 3.
+3. Installez "AxpertEMS", redémarrez.
+
+**Important** : HACS installe uniquement `custom_components/axpertems/`. Il ne copie **pas** automatiquement le contenu de `packages/` — cette étape reste manuelle, voir plus bas.
+
+### Mise à jour
+1. Via HACS : Intégrations > AxpertEMS > Mettre à jour (comme n'importe quel autre dépôt personnalisé).
+2. Manuelle : remplacez le contenu de `custom_components/axpertems/` par la nouvelle version, redémarrez.
+3. Dans les deux cas, **comparez les fichiers de `packages/`** avec votre version déployée avant d'écraser — vos réglages personnels (labels, seuils via l'UI) sont dans les helpers et les options, pas dans les fichiers YAML eux-mêmes, mais un fichier `packages/` modifié à la main de votre côté serait écrasé par une mise à jour naïve.
 
 ## Accès au port série (Docker / HAOS)
 
@@ -27,9 +47,15 @@ Si Home Assistant tourne en conteneur Docker, le port série doit être monté e
 devices:
   - /dev/ttyUSB0:/dev/ttyUSB0
 ```
-Vérifiez aussi que l'utilisateur du conteneur a les droits d'accès au périphérique (groupe `dialout` sur l'hôte, ou `privileged: true` en dernier recours).
+Vérifiez aussi que l'utilisateur du conteneur a les droits d'accès au périphérique (groupe `dialout` sur l'hôte). Évitez `privileged: true` — ce n'est pas nécessaire pour un accès série normal et élargit inutilement la surface d'attaque du conteneur ; ne l'utilisez qu'en dépannage ponctuel, jamais en配置 permanente.
 
 Sur Home Assistant OS, le port série est généralement accessible sans configuration additionnelle via **Paramètres > Système > Matériel**.
+
+### Diagnostic du port série
+- `ls -l /dev/ttyUSB0` sur l'hôte : vérifiez que le périphérique existe et que son groupe (souvent `dialout`) correspond aux droits attendus.
+- Dans le conteneur : `docker exec -it homeassistant ls -l /dev/ttyUSB0` pour confirmer qu'il est bien monté à l'intérieur.
+- Si un autre processus (un ancien script `mpp-solar`, un service systemd résiduel) utilise déjà le port, la connexion échouera avec un timeout — `lsof /dev/ttyUSB0` sur l'hôte pour identifier un éventuel autre utilisateur du port.
+- En cas d'erreurs CRC répétées dans les logs (`AxpertResponseError`), vérifiez la vitesse (2400 bauds par défaut) et la qualité du câble/adaptateur USB-série.
 
 ## Installation du Brain (packages YAML)
 
@@ -47,7 +73,7 @@ Sur Home Assistant OS, le port série est généralement accessible sans configu
    - `input_boolean.axpert_manual_lock_<object_id>`
    - `input_boolean.axpert_command_in_progress_<object_id>`
 
-   *(Limite connue : sans ces deux helpers, la charge est délestée/restaurée normalement mais sans verrou manuel ni détection fiable d'action manuelle sur cette charge précise.)*
+   *(Sans ces deux helpers, la charge est quand même délestée/restaurée normalement — le Brain détecte leur absence et n'essaie pas d'agir dessus — mais elle n'a ni verrou manuel ni détection fiable d'action manuelle tant qu'ils ne sont pas créés.)*
 5. Redémarrez Home Assistant.
 
 ## Entités attendues par le Brain
