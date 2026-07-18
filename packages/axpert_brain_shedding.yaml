@@ -62,13 +62,12 @@ automation:
       shed_needed: "{{ grid_down and deficit and battery_capacity < soc_threshold_delestage }}"
       restore_needed: "{{ grid_up or (not deficit and battery_ok) }}"
 
-      # NOTE (point #13 du rapport) : pour l'instant, limite les labels
-      # delestage_tier1/2/3 aux charges qui ONT déjà leurs helpers dans
-      # axpert_brain_manual_lock.yaml (frigo, télé). Ajouter un label à
-      # une charge sans ses deux helpers ne PLANTE PLUS (progress_entity_id
-      # devient '' et lock_entity_id via is_state() renvoie False en
-      # sécurité), mais cette charge n'aura ni verrou manuel ni marqueur
-      # anti-user_id tant que ses helpers ne sont pas créés.
+      # CORRIGÉ (point #7) : states('entity_id') ne renvoie JAMAIS None —
+      # pour une entité inexistante il renvoie la chaîne 'unknown', donc
+      # "states(progress_id) is not none" était TOUJOURS vrai, quelle que
+      # soit l'existence réelle de l'entité. Le test correct passe par
+      # l'accès registre states[entity_id], qui renvoie bien None si
+      # l'entité n'existe pas.
       loads: >
         {% set ns = namespace(items=[]) %}
         {% for tier_num, label_id, default_delay_key, default_delay in [
@@ -82,7 +81,7 @@ automation:
               {% set delay = delay_cfg | float(default_delay) if delay_cfg not in ['unknown', 'unavailable', none, ''] else default_delay %}
               {% set object_id = ent.split('.')[1] %}
               {% set progress_id = 'input_boolean.axpert_command_in_progress_' ~ object_id %}
-              {% set progress_id = progress_id if states(progress_id) is not none else '' %}
+              {% set progress_id = progress_id if states[progress_id] is not none else '' %}
               {% set ns.items = ns.items + [{
                    'entity_id': ent,
                    'tier': tier_num,
@@ -95,7 +94,6 @@ automation:
         {% endfor %}
         {{ ns.items }}
 
-      # Namespace explicite — pas de rejectattr('entity_id','is_state','on').
       tier1_all_off: >
         {% set ns = namespace(all_off=true) %}
         {% set t1 = loads | selectattr('tier', 'eq', 1) | list %}
@@ -109,6 +107,9 @@ automation:
 
     actions:
 
+      # ---------------------------------------------------------------
+      # Délestage tier 1
+      # ---------------------------------------------------------------
       - if:
           - condition: template
             value_template: "{{ tier1_shed_allowed }}"
@@ -130,7 +131,14 @@ automation:
                     - action: switch.turn_off
                       target:
                         entity_id: "{{ repeat.item.entity_id }}"
-                    - delay: "00:00:03"
+                    # CORRIGÉ (point #8) : délai fixe de 3s remplacé par
+                    # une attente de la confirmation réelle de l'état
+                    # (utile pour Tuya, plus lent qu'une prise locale) —
+                    # timeout de secours à 15s si l'état ne confirme
+                    # jamais (ne bloque pas indéfiniment le Brain).
+                    - wait_template: "{{ is_state(repeat.item.entity_id, 'off') }}"
+                      timeout: "00:00:15"
+                      continue_on_timeout: true
                     - if:
                         - condition: template
                           value_template: "{{ repeat.item.progress_entity_id != '' }}"
@@ -139,6 +147,9 @@ automation:
                           target:
                             entity_id: "{{ repeat.item.progress_entity_id }}"
 
+      # ---------------------------------------------------------------
+      # Délestage tier 2
+      # ---------------------------------------------------------------
       - if:
           - condition: template
             value_template: "{{ shed_needed and deficit and tier1_all_off and not shedding_paused }}"
@@ -160,7 +171,9 @@ automation:
                     - action: switch.turn_off
                       target:
                         entity_id: "{{ repeat.item.entity_id }}"
-                    - delay: "00:00:03"
+                    - wait_template: "{{ is_state(repeat.item.entity_id, 'off') }}"
+                      timeout: "00:00:15"
+                      continue_on_timeout: true
                     - if:
                         - condition: template
                           value_template: "{{ repeat.item.progress_entity_id != '' }}"
@@ -169,6 +182,9 @@ automation:
                           target:
                             entity_id: "{{ repeat.item.progress_entity_id }}"
 
+      # ---------------------------------------------------------------
+      # Délestage tier 3
+      # ---------------------------------------------------------------
       - variables:
           tier2_all_off: >
             {% set ns2 = namespace(all_off=true) %}
@@ -198,7 +214,9 @@ automation:
                     - action: switch.turn_off
                       target:
                         entity_id: "{{ repeat.item.entity_id }}"
-                    - delay: "00:00:03"
+                    - wait_template: "{{ is_state(repeat.item.entity_id, 'off') }}"
+                      timeout: "00:00:15"
+                      continue_on_timeout: true
                     - if:
                         - condition: template
                           value_template: "{{ repeat.item.progress_entity_id != '' }}"
@@ -207,7 +225,9 @@ automation:
                           target:
                             entity_id: "{{ repeat.item.progress_entity_id }}"
 
+      # ---------------------------------------------------------------
       # Restauration réactive — la pause NE bloque PAS ceci.
+      # ---------------------------------------------------------------
       - if:
           - condition: template
             value_template: "{{ restore_needed and not shed_needed }}"
@@ -241,7 +261,9 @@ automation:
                         - action: switch.turn_on
                           target:
                             entity_id: "{{ repeat.item.entity_id }}"
-                        - delay: "00:00:03"
+                        - wait_template: "{{ is_state(repeat.item.entity_id, 'on') }}"
+                          timeout: "00:00:15"
+                          continue_on_timeout: true
                         - if:
                             - condition: template
                               value_template: "{{ repeat.item.progress_entity_id != '' }}"
