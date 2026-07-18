@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from .exceptions import AxpertResponseError
 from .exceptions import AxpertCommandRejectedError, AxpertResponseError
 
 _CRC_TABLE = [
@@ -86,9 +85,6 @@ _DEVICE_STATUS_BITS = [
 
 
 def validate_field_count(parts: list[str], expected_fields: list[str], command: str) -> None:
-    """Lève AxpertResponseError si la trame contient MOINS de champs que
-    attendu — sans ça, zip() décale silencieusement le mapping nom/valeur
-    sur une trame tronquée, donnant des valeurs fausses sans erreur."""
     if len(parts) < len(expected_fields):
         raise AxpertResponseError(
             f"Trame {command} tronquée : {len(parts)} champs reçus, "
@@ -169,13 +165,7 @@ def parse_qpiri(payload: str) -> dict[str, Any]:
 
 
 def parse_current_options(payload: str) -> list[int]:
-    """QMCHGCR / QMUCHGCR — paliers de courant acceptés par CET onduleur.
-
-    CORRIGÉ : lève une erreur explicite au lieu de retourner silencieusement
-    une liste vide sur NAK ou réponse sans valeur numérique — une liste
-    vide masquait la panne et forçait le select à retomber sur un ['0']
-    inventé qui n'est pas forcément un palier valide.
-    """
+    """QMCHGCR / QMUCHGCR — paliers de courant acceptés par CET onduleur."""
     if "NAK" in payload.upper():
         raise AxpertCommandRejectedError(
             f"L'onduleur a rejeté la lecture des paliers de courant (réponse : {payload!r})"
