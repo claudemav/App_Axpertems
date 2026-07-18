@@ -47,7 +47,7 @@ Si Home Assistant tourne en conteneur Docker, le port série doit être monté e
 devices:
   - /dev/ttyUSB0:/dev/ttyUSB0
 ```
-Vérifiez aussi que l'utilisateur du conteneur a les droits d'accès au périphérique (groupe `dialout` sur l'hôte). Évitez `privileged: true` — ce n'est pas nécessaire pour un accès série normal et élargit inutilement la surface d'attaque du conteneur ; ne l'utilisez qu'en dépannage ponctuel, jamais en配置 permanente.
+Vérifiez aussi que l'utilisateur du conteneur a les droits d'accès au périphérique (groupe `dialout` sur l'hôte). Évitez `privileged: true` — ce n'est pas nécessaire pour un accès série normal et élargit inutilement la surface d'attaque du conteneur ; ne l'utilisez qu'en dépannage ponctuel, jamais en configuration permanente.
 
 Sur Home Assistant OS, le port série est généralement accessible sans configuration additionnelle via **Paramètres > Système > Matériel**.
 
