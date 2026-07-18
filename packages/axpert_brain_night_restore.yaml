@@ -2,7 +2,6 @@
 # AXPERT BRAIN — Maintien nocturne du frigo (rallumage à toute heure de
 # nuit s'il s'éteint, comportement VOULU — pas juste "restauration 23h")
 # =====================================================================
-
 automation:
 
   - alias: "Axpert Brain — Maintien nocturne du frigo"
@@ -37,8 +36,6 @@ automation:
       - condition: state
         entity_id: input_boolean.axpert_manual_lock_frigo
         state: "off"
-      - condition: template
-        value_template: "{{ not is_state('timer.axpert_shedding_pause', 'active') }}"
 
     actions:
       - delay: "00:01:00"
@@ -57,8 +54,6 @@ automation:
       - condition: state
         entity_id: input_boolean.axpert_manual_lock_frigo
         state: "off"
-      - condition: template
-        value_template: "{{ not is_state('timer.axpert_shedding_pause', 'active') }}"
       - action: input_boolean.turn_on
         target:
           entity_id: input_boolean.axpert_command_in_progress_frigo

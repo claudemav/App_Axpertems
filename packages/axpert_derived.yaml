@@ -22,11 +22,6 @@ sensor:
         window_size: 4
         radius: 50.0
 
-  # SOC lissé — utilisé par axpert_brain_output_mode, axpert_brain_shedding
-  # et axpert_brain_night_restore. Batterie vieillissante -> le SOC brut
-  # de l'onduleur varie fort sous charge ; une moyenne temporelle est plus
-  # pertinente qu'un simple anti-glitch.
-  # VÉRIFIE que sensor.debarras_maison_batterie est bien un % (0-100).
   - platform: filter
     name: Axpert Battery Capacity Filtered
     unique_id: axpert_battery_capacity_filtered
@@ -35,17 +30,6 @@ sensor:
       - filter: time_simple_moving_average
         window_size:
           minutes: 5
-
-  - platform: template
-    binary_sensors:
-      axpert_deficit_solaire_brut:
-        friendly_name: "Axpert Deficit Solaire Brut"
-        value_template: >
-          {{
-            states('sensor.axpert_pv_power_filtered')|float(0)
-            
-            states('sensor.axpert_output_power_filtered')|float(0)
-          }}
 
 template:
 
@@ -124,3 +108,10 @@ template:
           seconds: 30
         delay_off:
           seconds: 15
+
+      - name: Axpert Deficit Solaire Brut
+        unique_id: axpert_deficit_solaire_brut
+        state: >
+          {% set pv = states('sensor.axpert_pv_power_filtered')|float(0) %}
+          {% set output = states('sensor.axpert_output_power_filtered')|float(0) %}
+          {{ pv < output }}

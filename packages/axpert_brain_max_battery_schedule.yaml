@@ -1,18 +1,9 @@
 # =====================================================================
 # AXPERT BRAIN — Mode Max Batterie + déclin du soir
 #
-#   23h -> config_end_time (15h30 par défaut) : Max Batterie actif.
-#   config_end_time -> 1er déficit confirmé : reste actif SANS coupure
-#     forcée (voulu : maximiser l'usage du solaire tant qu'il n'y a pas
-#     de déficit réel).
-#   1er déficit confirmé après config_end_time : Max Batterie coupé +
-#     déclin du soir activé (sticky E2C dès ce moment).
-#   Coucher du soleil : filet de sécurité si aucun déficit n'a encore
-#     eu lieu.
-#
 # NOTE : input_boolean.axpert_max_battery_mode et axpert_manual_output_mode
 # sont définis dans axpert_brain_output_mode.yaml — ne PAS les redéfinir
-# ici (packages HA : une entité définie deux fois lève une erreur).
+# ici.
 # =====================================================================
 
 input_boolean:
@@ -45,15 +36,27 @@ automation:
         event: sunset
       - trigger: homeassistant
         event: start
+      - trigger: time
+        at: input_datetime.axpert_max_battery_end_time
+        id: max_battery_end
 
     variables:
-      end_time: "{{ (states('input_datetime.axpert_max_battery_end_time') | as_datetime).time() }}"
-      after_end: "{{ now().time() >= end_time }}"
-      sun_below: "{{ is_state('sun.sun', 'below_horizon') }}"
-      deficit_now: "{{ is_state('binary_sensor.axpert_deficit_solaire', 'on') }}"
       night_start_str: >
         {% set raw = states('sensor.debarras_maison_axpert_config_night_start') %}
         {{ raw if raw not in ['unknown', 'unavailable', none, ''] else '23:00' }}
+      night_start: "{{ strptime(night_start_str, '%H:%M').time() }}"
+
+      end_time_str: >
+        {% set raw = states('input_datetime.axpert_max_battery_end_time') %}
+        {{ raw if raw not in ['unknown', 'unavailable', none, ''] else '15:30:00' }}
+      end_time: "{{ strptime(end_time_str, '%H:%M:%S').time() }}"
+
+      # Fenêtre Max Batterie, traverse minuit : vraie de night_start (23h)
+      # jusqu'à end_time (15h30) LE LENDEMAIN.
+      max_battery_window: "{{ now().time() >= night_start or now().time() < end_time }}"
+
+      sun_below: "{{ is_state('sun.sun', 'below_horizon') }}"
+      deficit_now: "{{ is_state('binary_sensor.axpert_deficit_solaire', 'on') }}"
       is_night_start_now: "{{ now().strftime('%H:%M') == night_start_str }}"
 
     actions:
@@ -63,7 +66,7 @@ automation:
             sequence:
               - if:
                   - condition: template
-                    value_template: "{{ not after_end }}"
+                    value_template: "{{ max_battery_window }}"
                 then:
                   - action: input_boolean.turn_on
                     target: { entity_id: input_boolean.axpert_max_battery_mode }
@@ -91,7 +94,14 @@ automation:
               - action: input_boolean.turn_off
                 target: { entity_id: input_boolean.axpert_evening_decline }
 
-          - conditions: "{{ trigger.platform == 'state' and after_end and sun_below == false }}"
+          - conditions: "{{ trigger.id == 'max_battery_end' and deficit_now }}"
+            sequence:
+              - action: input_boolean.turn_off
+                target: { entity_id: input_boolean.axpert_max_battery_mode }
+              - action: input_boolean.turn_on
+                target: { entity_id: input_boolean.axpert_evening_decline }
+
+          - conditions: "{{ trigger.platform == 'state' and not max_battery_window }}"
             sequence:
               - action: input_boolean.turn_off
                 target: { entity_id: input_boolean.axpert_max_battery_mode }
