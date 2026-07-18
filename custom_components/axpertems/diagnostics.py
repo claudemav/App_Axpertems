@@ -1,0 +1,31 @@
+"""Diagnostics — Paramètres > Appareils et services > AxpertEMS > ⋮ > Télécharger les diagnostics."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
+
+from .const import DOMAIN
+
+
+async def async_get_config_entry_diagnostics(
+    hass: HomeAssistant, entry: ConfigEntry
+) -> dict[str, Any]:
+    stored = hass.data[DOMAIN][entry.entry_id]
+    coordinator = stored["coordinator"]
+
+    return {
+        "entry_data": {
+            "port": entry.data.get("port"),
+            "baudrate": entry.data.get("baudrate"),
+            "scan_interval": entry.data.get("scan_interval"),
+        },
+        "coordinator": {
+            "last_update_success": coordinator.last_update_success,
+            "data": coordinator.data,
+            "supported_max_charging_currents": coordinator.supported_max_charging_currents,
+            "supported_max_utility_charging_currents": coordinator.supported_max_utility_charging_currents,
+        },
+    }
