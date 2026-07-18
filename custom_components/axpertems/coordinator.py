@@ -55,9 +55,12 @@ class AxpertCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         try:
             return await self.hass.async_add_executor_job(self._poll)
         except AxpertError as err:
-            # Fermeture RÉELLE du port (pas juste le flag) : sinon l'objet
-            # serial.Serial peut rester ouvert dans un état défectueux.
-            self._safe_close()
+            # CORRIGÉ : _safe_close() acquiert le même threading.Lock que
+            # execute(). Appelé directement ici (boucle async), il peut
+            # bloquer tant qu'une autre commande série tient le verrou.
+            # Passer par l'executor évite de geler la boucle événementielle
+            # de Home Assistant en attendant ce verrou.
+            await self.hass.async_add_executor_job(self._safe_close)
             raise UpdateFailed(str(err)) from err
 
     def _poll(self) -> dict[str, Any]:

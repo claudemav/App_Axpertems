@@ -79,6 +79,15 @@ class AxpertChargerPrioritySelect(AxpertEntity, SelectEntity):
 
 
 class AxpertMaxChargingCurrentSelect(AxpertEntity, SelectEntity):
+    """MCHGC — n'expose que les paliers RÉELLEMENT acceptés par CET
+    onduleur (lus via QMCHGCR au démarrage).
+
+    CORRIGÉ : si la découverte échoue (NAK, port instable), on ne propose
+    plus un ['0'] inventé qui pourrait ne pas être un palier valide — on
+    propose uniquement la valeur actuellement lue sur l'onduleur (QPIRI),
+    la seule dont on soit sûr qu'elle est acceptée puisque c'est celle en
+    vigueur."""
+
     _attr_icon = "mdi:current-dc"
 
     def __init__(self, coordinator: AxpertCoordinator) -> None:
@@ -87,7 +96,11 @@ class AxpertMaxChargingCurrentSelect(AxpertEntity, SelectEntity):
 
     @property
     def options(self) -> list[str]:
-        return [str(v) for v in self.coordinator.supported_max_charging_currents] or ["0"]
+        discovered = self.coordinator.supported_max_charging_currents
+        if discovered:
+            return [str(v) for v in discovered]
+        current = self.current_option
+        return [current] if current is not None else []
 
     @property
     def current_option(self) -> str | None:
@@ -109,7 +122,11 @@ class AxpertMaxUtilityChargingCurrentSelect(AxpertEntity, SelectEntity):
 
     @property
     def options(self) -> list[str]:
-        return [str(v) for v in self.coordinator.supported_max_utility_charging_currents] or ["0"]
+        discovered = self.coordinator.supported_max_utility_charging_currents
+        if discovered:
+            return [str(v) for v in discovered]
+        current = self.current_option
+        return [current] if current is not None else []
 
     @property
     def current_option(self) -> str | None:

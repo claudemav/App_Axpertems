@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .exceptions import AxpertResponseError
+from .exceptions import AxpertCommandRejectedError, AxpertResponseError
 
 _CRC_TABLE = [
     0x0000, 0x1021, 0x2042, 0x3063, 0x4084, 0x50A5, 0x60C6, 0x70E7,
@@ -168,13 +169,30 @@ def parse_qpiri(payload: str) -> dict[str, Any]:
 
 
 def parse_current_options(payload: str) -> list[int]:
-    """QMCHGCR / QMUCHGCR — paliers de courant acceptés par CET onduleur."""
+    """QMCHGCR / QMUCHGCR — paliers de courant acceptés par CET onduleur.
+
+    CORRIGÉ : lève une erreur explicite au lieu de retourner silencieusement
+    une liste vide sur NAK ou réponse sans valeur numérique — une liste
+    vide masquait la panne et forçait le select à retomber sur un ['0']
+    inventé qui n'est pas forcément un palier valide.
+    """
+    if "NAK" in payload.upper():
+        raise AxpertCommandRejectedError(
+            f"L'onduleur a rejeté la lecture des paliers de courant (réponse : {payload!r})"
+        )
+
     options: list[int] = []
     for token in payload.split():
         try:
             options.append(int(float(token)))
         except ValueError:
             continue
+
+    if not options:
+        raise AxpertResponseError(
+            f"Aucun palier de courant valide trouvé dans la réponse : {payload!r}"
+        )
+
     return options
 
 
