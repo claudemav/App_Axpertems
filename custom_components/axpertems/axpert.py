@@ -19,7 +19,7 @@ from . import protocol
 _LOGGER = logging.getLogger(__name__)
 
 DEFAULT_BAUDRATE = 2400
-DEFAULT_TIMEOUT = 2.0
+DEFAULT_TIMEOUT = 3.0
 MAX_RESPONSE_BYTES = 256
 
 
@@ -116,7 +116,7 @@ class AxpertClient:
             for attempt in range(retries + 1):
                 if attempt > 0:
                     _LOGGER.debug("Nouvelle tentative pour %s (essai %d)", command, attempt + 1)
-                    time.sleep(0.3)
+                    time.sleep(0.5)
 
                 _LOGGER.debug("-> %s (%r)", command, frame)
                 try:

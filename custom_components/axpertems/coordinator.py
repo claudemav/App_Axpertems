@@ -1,4 +1,11 @@
-"""Coordinator : unique propriétaire du port série, alimente toutes les entités."""
+"""Coordinator : unique propriétaire du port série, alimente toutes les entités.
+
+Gère une période de grâce pour les échecs transitoires (bruit RS232,
+micro-coupure) : les entités ne disparaissent plus pour un seul raté
+isolé — elles conservent la dernière valeur connue, marquée "vieillissante"
+via data_stale, et ne basculent en vraiment indisponible qu'après
+plusieurs échecs consécutifs ou si les données deviennent trop vieilles.
+"""
 
 from __future__ import annotations
 
@@ -9,6 +16,7 @@ from typing import Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from .axpert import AxpertClient
 from .const import DOMAIN
@@ -17,6 +25,9 @@ from .exceptions import AxpertCommandRejectedError, AxpertError
 _LOGGER = logging.getLogger(__name__)
 
 QPIRI_REFRESH_SECONDS = 600
+QMOD_REFRESH_SECONDS = 60
+MAX_CONSECUTIVE_FAILURES = 3
+MAX_STALE_AGE_SECONDS = 120
 
 
 class AxpertCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -35,10 +46,22 @@ class AxpertCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self._client = AxpertClient(port, baudrate=baudrate)
         self._port_open = False
+
         self._qpiri_cache: dict[str, Any] = {}
         self._last_qpiri_fetch: float = 0.0
+
+        self._qmod_cache: dict[str, Any] = {}
+        self._last_qmod_fetch: float = 0.0
+
         self.supported_max_charging_currents: list[int] = []
         self.supported_max_utility_charging_currents: list[int] = []
+
+        # -- santé de la liaison série --
+        self.consecutive_failures: int = 0
+        self.last_success: Any = None
+        self.last_error: str | None = None
+        self.data_stale: bool = False
+        self._last_success_monotonic: float | None = None
 
     async def async_fetch_supported_currents(self) -> None:
         try:
@@ -53,28 +76,88 @@ class AxpertCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def _async_update_data(self) -> dict[str, Any]:
         try:
-            return await self.hass.async_add_executor_job(self._poll)
+            data = await self.hass.async_add_executor_job(self._poll)
         except AxpertError as err:
-            # CORRIGÉ : _safe_close() acquiert le même threading.Lock que
-            # execute(). Appelé directement ici (boucle async), il peut
-            # bloquer tant qu'une autre commande série tient le verrou.
-            # Passer par l'executor évite de geler la boucle événementielle
-            # de Home Assistant en attendant ce verrou.
+            self.consecutive_failures += 1
+            self.last_error = str(err)
+
+            age = (
+                time.monotonic() - self._last_success_monotonic
+                if self._last_success_monotonic is not None
+                else None
+            )
+
             await self.hass.async_add_executor_job(self._safe_close)
+
+            # Période de grâce : un raté isolé ne fait plus disparaître
+            # tout le dashboard. On ne bascule en "vraiment indisponible"
+            # qu'après plusieurs échecs consécutifs OU si les données
+            # sont devenues trop vieilles.
+            if (
+                self.data is not None
+                and self.consecutive_failures < MAX_CONSECUTIVE_FAILURES
+                and (age is None or age < MAX_STALE_AGE_SECONDS)
+            ):
+                self.data_stale = True
+                _LOGGER.warning(
+                    "Échec série transitoire %s/%s, conservation des dernières données : %s",
+                    self.consecutive_failures,
+                    MAX_CONSECUTIVE_FAILURES,
+                    err,
+                )
+                return self.data
+
             raise UpdateFailed(str(err)) from err
+
+        self.consecutive_failures = 0
+        self.last_error = None
+        self.data_stale = False
+        self.last_success = dt_util.utcnow()
+        self._last_success_monotonic = time.monotonic()
+        return data
 
     def _poll(self) -> dict[str, Any]:
         if not self._port_open:
             self._client.open()
             self._port_open = True
 
-        data = self._client.get_realtime_data()
+        qpigs = self._client.get_qpigs()
 
-        if not self._qpiri_cache or (time.monotonic() - self._last_qpiri_fetch) > QPIRI_REFRESH_SECONDS:
-            self._qpiri_cache = self._client.get_settings()
-            self._last_qpiri_fetch = time.monotonic()
+        if not self._qmod_cache or (time.monotonic() - self._last_qmod_fetch) > QMOD_REFRESH_SECONDS:
+            try:
+                self._qmod_cache = self._client.get_qmod()
+                self._last_qmod_fetch = time.monotonic()
+            except AxpertError as err:
+                if not self._qmod_cache:
+                    _LOGGER.warning("QMOD indisponible (aucune valeur précédente) : %s", err)
+                else:
+                    _LOGGER.debug("QMOD indisponible, conservation du dernier mode connu : %s", err)
 
-        return {**data, **self._qpiri_cache}
+        qpiri_due = (
+            not self._qpiri_cache
+            or (time.monotonic() - self._last_qpiri_fetch) > QPIRI_REFRESH_SECONDS
+        )
+        if qpiri_due:
+            try:
+                self._qpiri_cache = self._client.get_settings()
+                self._last_qpiri_fetch = time.monotonic()
+            except AxpertError as err:
+                if not self._qpiri_cache:
+                    _LOGGER.warning("QPIRI indisponible (aucune valeur précédente) : %s", err)
+                else:
+                    _LOGGER.debug("QPIRI indisponible, conservation des derniers réglages : %s", err)
+
+        # CORRIGÉ : la clé "qpiri" est désormais TOUJOURS présente dans le
+        # dict retourné, même en dict vide {} si QPIRI n'a encore jamais
+        # réussi — au lieu de dépendre d'un spread **self._qpiri_cache qui
+        # n'ajoutait rien du tout tant que le cache était vide. C'est ce
+        # qui causait le KeyError('qpiri') dans select.py au premier
+        # cycle si QPIRI échouait avant QPIGS/QMOD.
+        return {
+            "qpigs": qpigs,
+            "qmod": self._qmod_cache,
+            "qpiri": self._qpiri_cache.get("qpiri", {}),
+        }
 
     def _force_qpiri_refresh(self) -> None:
         self._qpiri_cache = {}

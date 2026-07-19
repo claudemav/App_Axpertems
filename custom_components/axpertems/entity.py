@@ -21,3 +21,15 @@ class AxpertEntity(CoordinatorEntity[AxpertCoordinator]):
             manufacturer="Voltronic / Axpert",
             model="PI30",
         )
+
+
+class AxpertDiagnosticEntity(AxpertEntity):
+    """Base pour les entités de santé (communication, erreurs, échecs
+    consécutifs...). Reste TOUJOURS disponible, même quand le coordinator
+    est en échec dur (last_update_success=False) — sinon ces entités
+    disparaîtraient exactement au moment où elles sont le plus utiles
+    (pendant une vraie panne série)."""
+
+    @property
+    def available(self) -> bool:
+        return True

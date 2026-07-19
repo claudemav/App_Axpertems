@@ -39,8 +39,13 @@ from .const import (
     DOMAIN,
 )
 from .coordinator import AxpertCoordinator
-from .entity import AxpertEntity
-
+from .entity import AxpertDiagnosticEntity, AxpertEntity
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorEntityDescription,
+    SensorStateClass,
+)
 
 @dataclass(frozen=True, kw_only=True)
 class AxpertSensorDescription(SensorEntityDescription):
@@ -206,6 +211,9 @@ async def async_setup_entry(
         AxpertConfigSensor(coordinator, entry, description)
         for description in CONFIG_SENSOR_DESCRIPTIONS
     )
+    entities.append(AxpertConsecutiveFailuresSensor(coordinator))
+    entities.append(AxpertLastSuccessSensor(coordinator))
+    entities.append(AxpertLastErrorSensor(coordinator))
     async_add_entities(entities)
 
 
@@ -238,3 +246,43 @@ class AxpertConfigSensor(AxpertEntity, SensorEntity):
         return self._entry.options.get(
             self.entity_description.option_key, self.entity_description.default
         )
+
+class AxpertConsecutiveFailuresSensor(AxpertDiagnosticEntity, SensorEntity):
+    _attr_icon = "mdi:counter"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, coordinator: AxpertCoordinator) -> None:
+        super().__init__(coordinator, "consecutive_failures")
+        self._attr_name = "Axpert Consecutive Failures"
+
+    @property
+    def native_value(self) -> Any:
+        return self.coordinator.consecutive_failures
+
+
+class AxpertLastSuccessSensor(AxpertDiagnosticEntity, SensorEntity):
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:check-circle-outline"
+
+    def __init__(self, coordinator: AxpertCoordinator) -> None:
+        super().__init__(coordinator, "last_success")
+        self._attr_name = "Axpert Last Success"
+
+    @property
+    def native_value(self) -> Any:
+        return self.coordinator.last_success
+
+
+class AxpertLastErrorSensor(AxpertDiagnosticEntity, SensorEntity):
+    _attr_icon = "mdi:alert-circle-outline"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator: AxpertCoordinator) -> None:
+        super().__init__(coordinator, "last_error")
+        self._attr_name = "Axpert Last Error"
+
+    @property
+    def native_value(self) -> Any:
+        return self.coordinator.last_error or "Aucune"

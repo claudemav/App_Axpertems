@@ -27,5 +27,9 @@ async def async_get_config_entry_diagnostics(
             "data": coordinator.data,
             "supported_max_charging_currents": coordinator.supported_max_charging_currents,
             "supported_max_utility_charging_currents": coordinator.supported_max_utility_charging_currents,
+            "consecutive_failures": coordinator.consecutive_failures,
+            "last_success": coordinator.last_success,
+            "last_error": coordinator.last_error,
+            "data_stale": coordinator.data_stale,
         },
     }

@@ -52,7 +52,7 @@ class AxpertOutputModeSelect(AxpertEntity, SelectEntity):
     def current_option(self) -> str | None:
         if self.coordinator.data is None:
             return None
-        priority = self.coordinator.data["qpiri"].get("output_source_priority")
+        priority = self.coordinator.data.get("qpiri", {}).get("output_source_priority")
         return _PRIORITY_TO_OPTION.get(priority)
 
     async def async_select_option(self, option: str) -> None:
@@ -71,7 +71,7 @@ class AxpertChargerPrioritySelect(AxpertEntity, SelectEntity):
     def current_option(self) -> str | None:
         if self.coordinator.data is None:
             return None
-        priority = self.coordinator.data["qpiri"].get("charger_source_priority")
+        priority = self.coordinator.data.get("qpiri", {}).get("charger_source_priority")
         return _CHARGER_PRIORITY_TO_OPTION.get(priority)
 
     async def async_select_option(self, option: str) -> None:
@@ -79,15 +79,6 @@ class AxpertChargerPrioritySelect(AxpertEntity, SelectEntity):
 
 
 class AxpertMaxChargingCurrentSelect(AxpertEntity, SelectEntity):
-    """MCHGC — n'expose que les paliers RÉELLEMENT acceptés par CET
-    onduleur (lus via QMCHGCR au démarrage).
-
-    CORRIGÉ : si la découverte échoue (NAK, port instable), on ne propose
-    plus un ['0'] inventé qui pourrait ne pas être un palier valide — on
-    propose uniquement la valeur actuellement lue sur l'onduleur (QPIRI),
-    la seule dont on soit sûr qu'elle est acceptée puisque c'est celle en
-    vigueur."""
-
     _attr_icon = "mdi:current-dc"
 
     def __init__(self, coordinator: AxpertCoordinator) -> None:
@@ -106,7 +97,7 @@ class AxpertMaxChargingCurrentSelect(AxpertEntity, SelectEntity):
     def current_option(self) -> str | None:
         if self.coordinator.data is None:
             return None
-        value = self.coordinator.data["qpiri"].get("max_charging_current")
+        value = self.coordinator.data.get("qpiri", {}).get("max_charging_current")
         return str(int(value)) if value is not None else None
 
     async def async_select_option(self, option: str) -> None:
@@ -132,7 +123,7 @@ class AxpertMaxUtilityChargingCurrentSelect(AxpertEntity, SelectEntity):
     def current_option(self) -> str | None:
         if self.coordinator.data is None:
             return None
-        value = self.coordinator.data["qpiri"].get("max_ac_charging_current")
+        value = self.coordinator.data.get("qpiri", {}).get("max_ac_charging_current")
         return str(int(value)) if value is not None else None
 
     async def async_select_option(self, option: str) -> None:
