@@ -1,0 +1,44 @@
+# ──────────────────────────────────────────────────────────────────────────
+# Package : cumul d'énergie réseau (import uniquement) pour l'onduleur "Maman"
+# (dongle Solar of Things / solar.siseli.com)
+#
+# L'API Siseli ne remonte pas de vraie donnée mensuelle pour l'achat réseau
+# (monthly_grid_import reste à 0), donc on construit le cumul localement à
+# partir du capteur de puissance instantanée déjà exposé par l'intégration :
+# sensor.maman_grid_import_power (en W).
+#
+# Pas de capteur d'export : l'onduleur n'injecte pas vers le réseau
+# (switch.maman_grid_feed_in = off).
+#
+# À déposer dans votre dossier packages/ (ex: /config/packages/
+# solar_of_things_grid_energy.yaml). Si les packages ne sont pas encore
+# activés dans configuration.yaml, ajoutez :
+#
+#   homeassistant:
+#     packages: !include_dir_named packages
+#
+# ──────────────────────────────────────────────────────────────────────────
+
+sensor:
+  # Intègre la puissance (W) dans le temps → énergie cumulée (kWh), jamais remise à zéro
+  - platform: integration
+    name: "Maman Grid Import Energy"
+    unique_id: maman_grid_import_energy
+    source: sensor.maman_grid_import_power
+    unit_prefix: k          # W → kWh
+    round: 3
+    method: left            # somme de Riemann à gauche, adapté aux capteurs de puissance échantillonnés
+    max_sub_interval:
+      minutes: 10           # évite les trous si le coordinateur ne rafraîchit pas assez souvent
+
+utility_meter:
+  # Remises à zéro automatiques pour avoir des totaux jour/mois lisibles
+  maman_grid_import_daily:
+    source: sensor.maman_grid_import_energy
+    cycle: daily
+    name: "Maman Grid Import - Aujourd'hui"
+
+  maman_grid_import_monthly:
+    source: sensor.maman_grid_import_energy
+    cycle: monthly
+    name: "Maman Grid Import - Ce mois-ci"

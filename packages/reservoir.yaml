@@ -1,0 +1,225 @@
+# =========================================================
+# RESERVOIR A - Suivi niveau / consommation / autonomie
+# Source brute : intégration Tuya (sensor.reservoir_a_niveau_*)
+#
+# v2 : correction d'un bug (clé "template:" dupliquée qui
+#      écrasait le 1er bloc) + initialisation au démarrage HA
+# =========================================================
+
+input_number:
+  reservoir_capacite_litres:
+    name: "Réservoir - Capacité totale"
+    min: 0
+    max: 50000
+    step: 1
+    unit_of_measurement: "L"
+    icon: mdi:water
+    initial: 17000
+
+# ---------------------------------------------------------
+# UN SEUL bloc template:, avec plusieurs entrées à l'intérieur
+# ---------------------------------------------------------
+template:
+
+  # -- Capteurs simples, recalculés à chaque changement de niveau --
+  - sensor:
+      - name: "Réservoir - Volume disponible"
+        unique_id: reservoir_volume_disponible
+        unit_of_measurement: "L"
+        device_class: volume_storage
+        state_class: measurement
+        icon: mdi:cup-water
+        state: >
+          {% set cap = states('input_number.reservoir_capacite_litres') | float(0) %}
+          {% set niv = states('sensor.reservoir_a_niveau_niveau_du_liquide') | float(0) %}
+          {{ (cap * niv / 100) | round(0) }}
+
+      - name: "Réservoir - Volume manquant"
+        unique_id: reservoir_volume_manquant
+        unit_of_measurement: "L"
+        device_class: volume_storage
+        state_class: measurement
+        icon: mdi:water-minus
+        state: >
+          {% set cap = states('input_number.reservoir_capacite_litres') | float(0) %}
+          {% set dispo = states('sensor.reservoir_volume_disponible') | float(0) %}
+          {{ (cap - dispo) | round(0) }}
+
+  # -- Capteurs "à mémoire", déclenchés sur changement de niveau
+  #    OU au démarrage de HA (pour ne pas rester "unknown") --
+  - trigger:
+      - trigger: state
+        entity_id: sensor.reservoir_a_niveau_niveau_du_liquide
+      - trigger: homeassistant
+        event: start
+    sensor:
+
+      - name: "Réservoir - Consommation cumulée"
+        unique_id: reservoir_conso_cumulee
+        unit_of_measurement: "L"
+        device_class: volume_storage
+        state_class: total_increasing
+        icon: mdi:counter
+        state: >
+          {% set prev = this.state | float(0) if this and this.state not in ['unknown','unavailable',none] else 0 %}
+          {% if trigger.platform == 'state' and trigger.from_state and trigger.to_state %}
+            {% set cap = states('input_number.reservoir_capacite_litres') | float(0) %}
+            {% set old = trigger.from_state.state | float(none) %}
+            {% set new = trigger.to_state.state | float(none) %}
+            {% if old is not none and new is not none and new < old %}
+              {{ (prev + (old - new) * cap / 100) | round(2) }}
+            {% else %}
+              {{ prev }}
+            {% endif %}
+          {% else %}
+            {{ prev }}
+          {% endif %}
+
+      - name: "Réservoir - Dernier remplissage"
+        unique_id: reservoir_dernier_remplissage
+        device_class: timestamp
+        icon: mdi:calendar-check
+        state: >
+          {% if trigger.platform == 'state' and trigger.from_state and trigger.to_state %}
+            {% set old = trigger.from_state.state | float(none) %}
+            {% set new = trigger.to_state.state | float(none) %}
+            {% if old is not none and new is not none and (new - old) > 3 %}
+              {{ now().isoformat() }}
+            {% else %}
+              {{ this.state if this and this.state not in ['unknown','unavailable'] else None }}
+            {% endif %}
+          {% else %}
+            {{ this.state if this and this.state not in ['unknown','unavailable'] else None }}
+          {% endif %}
+
+      - name: "Réservoir - Niveau au dernier remplissage"
+        unique_id: reservoir_niveau_reference
+        unit_of_measurement: "%"
+        state: >
+          {% if trigger.platform == 'state' and trigger.from_state and trigger.to_state %}
+            {% set old = trigger.from_state.state | float(none) %}
+            {% set new = trigger.to_state.state | float(none) %}
+            {% if old is not none and new is not none and (new - old) > 3 %}
+              {{ new }}
+            {% else %}
+              {{ this.state if this and this.state not in ['unknown','unavailable',none] else new }}
+            {% endif %}
+          {% else %}
+            {{ this.state if this and this.state not in ['unknown','unavailable',none] else states('sensor.reservoir_a_niveau_niveau_du_liquide') }}
+          {% endif %}
+
+  # -- Utilisé depuis le dernier remplissage --
+  - sensor:
+      - name: "Réservoir - Utilisé depuis remplissage"
+        unique_id: reservoir_utilise_depuis_remplissage
+        unit_of_measurement: "L"
+        device_class: volume_storage
+        state_class: measurement
+        icon: mdi:water-minus
+        state: >
+          {% set cap = states('input_number.reservoir_capacite_litres') | float(0) %}
+          {% set ref = states('sensor.reservoir_niveau_reference') | float(0) %}
+          {% set niv = states('sensor.reservoir_a_niveau_niveau_du_liquide') | float(0) %}
+          {{ ([ (ref - niv) * cap / 100, 0 ] | max) | round(0) }}
+
+  # -- Alertes bas/plein, basées sur tes seuils Tuya existants --
+  - binary_sensor:
+      - name: "Réservoir Bas"
+        unique_id: reservoir_bas
+        device_class: problem
+        icon: mdi:water-alert
+        state: >
+          {{ (states('sensor.reservoir_a_niveau_niveau_du_liquide') | float(100))
+             <= (states('number.reservoir_a_niveau_alarme_minimale') | float(10)) }}
+
+      - name: "Réservoir Plein"
+        unique_id: reservoir_plein
+        device_class: problem
+        icon: mdi:water-check
+        state: >
+          {{ (states('sensor.reservoir_a_niveau_niveau_du_liquide') | float(0))
+             >= (states('number.reservoir_a_niveau_alarme_maximale') | float(95)) }}
+
+  # -- Autonomie et prévision (dans le même bloc template:) --
+  - sensor:
+      - name: "Réservoir - Consommation moyenne journalière"
+        unique_id: reservoir_conso_moyenne_jour
+        unit_of_measurement: "L/j"
+        state_class: measurement
+        icon: mdi:chart-line
+        state: >
+          {% set c7 = states('sensor.reservoir_conso_7_jours') | float(none) %}
+          {% set c24 = states('sensor.reservoir_conso_24h') | float(0) %}
+          {% if c7 is not none and c7 > 0 %}
+            {{ (c7 / 7) | round(1) }}
+          {% else %}
+            {{ c24 | round(1) }}
+          {% endif %}
+
+      - name: "Réservoir - Autonomie"
+        unique_id: reservoir_autonomie_jours
+        unit_of_measurement: "j"
+        state_class: measurement
+        icon: mdi:calendar-clock
+        state: >
+          {% set dispo = states('sensor.reservoir_volume_disponible') | float(0) %}
+          {% set conso = states('sensor.reservoir_conso_moyenne_jour') | float(0) %}
+          {{ (dispo / conso) | round(1) if conso > 0 else 0 }}
+
+      - name: "Réservoir - Prévision réservoir vide"
+        unique_id: reservoir_prevision_vide
+        device_class: timestamp
+        icon: mdi:calendar-alert
+        availability: >
+          {{ (states('sensor.reservoir_autonomie_jours') | float(0)) > 0 }}
+        state: >
+          {{ (now() + timedelta(days = states('sensor.reservoir_autonomie_jours') | float(0))).isoformat() }}
+
+# ---------------------------------------------------------
+# Moyennes glissantes (une seule clé sensor:, avec 2 entrées)
+# ---------------------------------------------------------
+sensor:
+  - platform: statistics
+    name: "Réservoir - Conso 24h"
+    unique_id: reservoir_conso_24h
+    entity_id: sensor.reservoir_conso_cumulee
+    state_characteristic: change
+    max_age:
+      hours: 24
+
+  - platform: statistics
+    name: "Réservoir - Conso 7 jours"
+    unique_id: reservoir_conso_7_jours
+    entity_id: sensor.reservoir_conso_cumulee
+    state_characteristic: change
+    max_age:
+      days: 7
+
+# ---------------------------------------------------------
+# Compteurs jour/mois natifs
+# ---------------------------------------------------------
+utility_meter:
+  reservoir_conso_jour:
+    source: sensor.reservoir_conso_cumulee
+    cycle: daily
+
+  reservoir_conso_mois:
+    source: sensor.reservoir_conso_cumulee
+    cycle: monthly
+
+# ---------------------------------------------------------
+# AUTOMATION OPTIONNELLE : notification niveau bas
+# ---------------------------------------------------------
+# automation:
+#   - alias: "Réservoir - Alerte niveau bas"
+#     triggers:
+#       - trigger: state
+#         entity_id: binary_sensor.reservoir_bas
+#         to: "on"
+#     actions:
+#       - action: notify.mobile_app_TON_TELEPHONE
+#         data:
+#           title: "Réservoir bas"
+#           message: >
+#             Il reste {{ states('sensor.reservoir_volume_disponible') }} L
+#             (~{{ states('sensor.reservoir_autonomie_jours') }} jours d'autonomie).

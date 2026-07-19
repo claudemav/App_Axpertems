@@ -1,0 +1,34 @@
+template:
+
+  - sensor:
+
+      - name: "Etat TV Vestel"
+        unique_id: etat_tv_vestel
+
+        state: >
+
+          {% set s = states('media_player.vestel_tv') %}
+
+          {% if s == 'idle' %}
+            Allumée
+
+          {% elif s == 'unknown' %}
+            Veille
+
+          {% else %}
+            Hors tension
+          {% endif %}
+
+        icon: >
+
+          {% set s = states('media_player.vestel_tv') %}
+
+          {% if s == 'idle' %}
+            mdi:television
+
+          {% elif s == 'unknown' %}
+            mdi:television-pause
+
+          {% else %}
+            mdi:television-off
+          {% endif %}
