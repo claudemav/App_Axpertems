@@ -1,4 +1,5 @@
-"""Capteurs numériques exposés par l'onduleur."""
+"""Capteurs numériques exposés par l'onduleur, capteurs de configuration
+et capteurs de diagnostic de la liaison série."""
 
 from __future__ import annotations
 
@@ -40,12 +41,7 @@ from .const import (
 )
 from .coordinator import AxpertCoordinator
 from .entity import AxpertDiagnosticEntity, AxpertEntity
-from homeassistant.components.sensor import (
-    SensorDeviceClass,
-    SensorEntity,
-    SensorEntityDescription,
-    SensorStateClass,
-)
+
 
 @dataclass(frozen=True, kw_only=True)
 class AxpertSensorDescription(SensorEntityDescription):
@@ -170,9 +166,6 @@ CONFIG_SENSOR_DESCRIPTIONS: tuple[AxpertConfigSensorDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         option_key=CONF_DEFICIT_DELAY_OFF, default=DEFAULT_OPTIONS[CONF_DEFICIT_DELAY_OFF],
     ),
-    # Nouveaux (point #7) : seuil de délestage dédié + délais de
-    # restauration par tier, référencés depuis longtemps dans
-    # axpert_brain_shedding.yaml mais absents ici jusqu'à présent.
     AxpertConfigSensorDescription(
         key="config_soc_threshold_delestage", name="Axpert Config SOC Threshold Delestage",
         icon="mdi:battery-arrow-down", native_unit_of_measurement=PERCENTAGE,
@@ -214,6 +207,7 @@ async def async_setup_entry(
     entities.append(AxpertConsecutiveFailuresSensor(coordinator))
     entities.append(AxpertLastSuccessSensor(coordinator))
     entities.append(AxpertLastErrorSensor(coordinator))
+    entities.append(AxpertPartialErrorSensor(coordinator))
     async_add_entities(entities)
 
 
@@ -247,7 +241,12 @@ class AxpertConfigSensor(AxpertEntity, SensorEntity):
             self.entity_description.option_key, self.entity_description.default
         )
 
+
 class AxpertConsecutiveFailuresSensor(AxpertDiagnosticEntity, SensorEntity):
+    """Nombre d'échecs consécutifs COMPLETS du cycle de poll (QPIGS),
+    remis à zéro à chaque succès. Distinct des échecs partiels QMOD/QPIRI
+    (voir Axpert Partial Error)."""
+
     _attr_icon = "mdi:counter"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_state_class = SensorStateClass.MEASUREMENT
@@ -276,6 +275,9 @@ class AxpertLastSuccessSensor(AxpertDiagnosticEntity, SensorEntity):
 
 
 class AxpertLastErrorSensor(AxpertDiagnosticEntity, SensorEntity):
+    """Dernière erreur ayant fait échouer le cycle GLOBAL de poll
+    (QPIGS). Vide dès que le cycle suivant réussit."""
+
     _attr_icon = "mdi:alert-circle-outline"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
@@ -286,3 +288,22 @@ class AxpertLastErrorSensor(AxpertDiagnosticEntity, SensorEntity):
     @property
     def native_value(self) -> Any:
         return self.coordinator.last_error or "Aucune"
+
+
+class AxpertPartialErrorSensor(AxpertDiagnosticEntity, SensorEntity):
+    """Résumé des sous-commandes (QMOD/QPIRI) actuellement en échec,
+    alors que le cycle global de poll (QPIGS) fonctionne — distinct de
+    Last Error, qui ne couvre que les échecs COMPLETS du cycle. Reste
+    non-vide tant qu'aucune nouvelle tentative de la commande concernée
+    n'a réussi, même si les cycles suivants réussissent globalement."""
+
+    _attr_icon = "mdi:alert-circle-outline"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator: AxpertCoordinator) -> None:
+        super().__init__(coordinator, "partial_error")
+        self._attr_name = "Axpert Partial Error"
+
+    @property
+    def native_value(self) -> Any:
+        return self.coordinator.partial_error or "Aucune"

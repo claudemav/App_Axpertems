@@ -55,6 +55,38 @@ async def async_setup_entry(
     ]
     entities.append(AxpertCommunicationBinarySensor(coordinator))
     entities.append(AxpertDataStaleBinarySensor(coordinator))
+class AxpertQmodStaleBinarySensor(AxpertDiagnosticEntity, BinarySensorEntity):
+    """ON = le dernier mode onduleur (QMOD) affiché date d'une tentative
+    précédente réussie, la lecture la plus récente ayant échoué. Distinct
+    de data_stale : le cycle global peut très bien avoir réussi (QPIGS
+    ok) alors que ce drapeau est actif."""
+
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator: AxpertCoordinator) -> None:
+        super().__init__(coordinator, "qmod_stale")
+        self._attr_name = "Axpert QMOD Stale"
+
+    @property
+    def is_on(self) -> bool | None:
+        return self.coordinator.qmod_stale
+
+
+class AxpertQpiriStaleBinarySensor(AxpertDiagnosticEntity, BinarySensorEntity):
+    """ON = les réglages onduleur affichés (QPIRI) datent d'une lecture
+    précédente, la plus récente ayant échoué."""
+
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator: AxpertCoordinator) -> None:
+        super().__init__(coordinator, "qpiri_stale")
+        self._attr_name = "Axpert QPIRI Stale"
+
+    @property
+    def is_on(self) -> bool | None:
+        return self.coordinator.qpiri_stale
     async_add_entities(entities)
 
 
@@ -103,3 +135,6 @@ class AxpertDataStaleBinarySensor(AxpertDiagnosticEntity, BinarySensorEntity):
     @property
     def is_on(self) -> bool | None:
         return self.coordinator.data_stale
+
+    entities.append(AxpertQmodStaleBinarySensor(coordinator))
+    entities.append(AxpertQpiriStaleBinarySensor(coordinator))

@@ -1,10 +1,18 @@
 """Coordinator : unique propriétaire du port série, alimente toutes les entités.
 
-Gère une période de grâce pour les échecs transitoires (bruit RS232,
-micro-coupure) : les entités ne disparaissent plus pour un seul raté
-isolé — elles conservent la dernière valeur connue, marquée "vieillissante"
-via data_stale, et ne basculent en vraiment indisponible qu'après
-plusieurs échecs consécutifs ou si les données deviennent trop vieilles.
+Gère une période de grâce pour les échecs transitoires COMPLETS (bruit
+RS232, micro-coupure) : les entités ne disparaissent plus pour un seul
+raté isolé — elles conservent la dernière valeur connue, marquée
+"vieillissante" via data_stale, et ne basculent en vraiment indisponible
+qu'après plusieurs échecs consécutifs ou si les données deviennent trop
+vieilles.
+
+Distinct de ça : un échec PARTIEL (QMOD ou QPIRI seuls, alors que QPIGS
+a réussi) est absorbé dans _poll() pour ne pas perdre les mesures
+critiques, mais est maintenant suivi séparément via qmod_stale/
+qpiri_stale/partial_error — sans quoi last_error/data_stale étaient
+remis à zéro par un cycle "globalement réussi" qui masquait pourtant un
+vrai problème sur une sous-commande.
 """
 
 from __future__ import annotations
@@ -56,12 +64,31 @@ class AxpertCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.supported_max_charging_currents: list[int] = []
         self.supported_max_utility_charging_currents: list[int] = []
 
-        # -- santé de la liaison série --
+        # -- santé GLOBALE du cycle de poll (échec complet, période de grâce) --
         self.consecutive_failures: int = 0
         self.last_success: Any = None
         self.last_error: str | None = None
         self.data_stale: bool = False
         self._last_success_monotonic: float | None = None
+
+        # -- santé PARTIELLE : QMOD/QPIRI en échec alors que le cycle
+        # global a réussi (QPIGS ok). Persistent jusqu'à la prochaine
+        # tentative réussie de la commande concernée — pas remis à zéro
+        # juste parce que la commande n'était pas due ce cycle-ci.
+        self.qmod_stale: bool = False
+        self.qmod_last_error: str | None = None
+        self.qpiri_stale: bool = False
+        self.qpiri_last_error: str | None = None
+
+    @property
+    def partial_error(self) -> str | None:
+        """Résumé lisible des sous-commandes en échec, ou None si tout est frais."""
+        parts: list[str] = []
+        if self.qmod_stale:
+            parts.append(f"QMOD ancien ({self.qmod_last_error or 'raison inconnue'})")
+        if self.qpiri_stale:
+            parts.append(f"QPIRI ancien ({self.qpiri_last_error or 'raison inconnue'})")
+        return "; ".join(parts) if parts else None
 
     async def async_fetch_supported_currents(self) -> None:
         try:
@@ -89,10 +116,6 @@ class AxpertCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             await self.hass.async_add_executor_job(self._safe_close)
 
-            # Période de grâce : un raté isolé ne fait plus disparaître
-            # tout le dashboard. On ne bascule en "vraiment indisponible"
-            # qu'après plusieurs échecs consécutifs OU si les données
-            # sont devenues trop vieilles.
             if (
                 self.data is not None
                 and self.consecutive_failures < MAX_CONSECUTIVE_FAILURES
@@ -109,6 +132,10 @@ class AxpertCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             raise UpdateFailed(str(err)) from err
 
+        # Le cycle GLOBAL a réussi (QPIGS ok) — mais qmod_stale/qpiri_stale
+        # ont pu être positionnés à l'intérieur de _poll() si QMOD/QPIRI
+        # ont échoué isolément. On ne les touche PAS ici : ils reflètent
+        # leur propre état, indépendant de la réussite globale du cycle.
         self.consecutive_failures = 0
         self.last_error = None
         self.data_stale = False
@@ -121,18 +148,32 @@ class AxpertCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._client.open()
             self._port_open = True
 
+        # QPIGS : critique, à chaque cycle. Une erreur ici fait échouer
+        # tout le cycle (remonte vers _async_update_data), normal.
         qpigs = self._client.get_qpigs()
 
+        # QMOD : moins critique, lu moins souvent (60s). Une erreur
+        # PONCTUELLE ne fait plus échouer tout le cycle -> on garde le
+        # dernier mode connu, mais on marque qmod_stale=True et on
+        # conserve le message d'erreur, PERSISTANTS jusqu'à la prochaine
+        # tentative réussie (pas remis à zéro tant qu'aucune nouvelle
+        # tentative n'a eu lieu).
         if not self._qmod_cache or (time.monotonic() - self._last_qmod_fetch) > QMOD_REFRESH_SECONDS:
             try:
                 self._qmod_cache = self._client.get_qmod()
                 self._last_qmod_fetch = time.monotonic()
+                self.qmod_stale = False
+                self.qmod_last_error = None
             except AxpertError as err:
+                self.qmod_stale = True
+                self.qmod_last_error = str(err)
                 if not self._qmod_cache:
                     _LOGGER.warning("QMOD indisponible (aucune valeur précédente) : %s", err)
                 else:
                     _LOGGER.debug("QMOD indisponible, conservation du dernier mode connu : %s", err)
 
+        # QPIRI : réglages stables, cache 10 min. Même logique de
+        # persistance du drapeau "stale" que QMOD ci-dessus.
         qpiri_due = (
             not self._qpiri_cache
             or (time.monotonic() - self._last_qpiri_fetch) > QPIRI_REFRESH_SECONDS
@@ -141,18 +182,16 @@ class AxpertCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             try:
                 self._qpiri_cache = self._client.get_settings()
                 self._last_qpiri_fetch = time.monotonic()
+                self.qpiri_stale = False
+                self.qpiri_last_error = None
             except AxpertError as err:
+                self.qpiri_stale = True
+                self.qpiri_last_error = str(err)
                 if not self._qpiri_cache:
                     _LOGGER.warning("QPIRI indisponible (aucune valeur précédente) : %s", err)
                 else:
                     _LOGGER.debug("QPIRI indisponible, conservation des derniers réglages : %s", err)
 
-        # CORRIGÉ : la clé "qpiri" est désormais TOUJOURS présente dans le
-        # dict retourné, même en dict vide {} si QPIRI n'a encore jamais
-        # réussi — au lieu de dépendre d'un spread **self._qpiri_cache qui
-        # n'ajoutait rien du tout tant que le cache était vide. C'est ce
-        # qui causait le KeyError('qpiri') dans select.py au premier
-        # cycle si QPIRI échouait avant QPIGS/QMOD.
         return {
             "qpigs": qpigs,
             "qmod": self._qmod_cache,
