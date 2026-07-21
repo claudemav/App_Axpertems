@@ -46,47 +46,26 @@ BINARY_SENSOR_DESCRIPTIONS: tuple[AxpertBinarySensorDescription, ...] = (
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator: AxpertCoordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+
     entities = [
         AxpertBinarySensor(coordinator, description)
         for description in BINARY_SENSOR_DESCRIPTIONS
     ]
-    entities.append(AxpertCommunicationBinarySensor(coordinator))
-    entities.append(AxpertDataStaleBinarySensor(coordinator))
-class AxpertQmodStaleBinarySensor(AxpertDiagnosticEntity, BinarySensorEntity):
-    """ON = le dernier mode onduleur (QMOD) affiché date d'une tentative
-    précédente réussie, la lecture la plus récente ayant échoué. Distinct
-    de data_stale : le cycle global peut très bien avoir réussi (QPIGS
-    ok) alors que ce drapeau est actif."""
 
-    _attr_device_class = BinarySensorDeviceClass.PROBLEM
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    entities.extend(
+        (
+            AxpertCommunicationBinarySensor(coordinator),
+            AxpertDataStaleBinarySensor(coordinator),
+            AxpertQmodStaleBinarySensor(coordinator),
+            AxpertQpiriStaleBinarySensor(coordinator),
+        )
+    )
 
-    def __init__(self, coordinator: AxpertCoordinator) -> None:
-        super().__init__(coordinator, "qmod_stale")
-        self._attr_name = "Axpert QMOD Stale"
-
-    @property
-    def is_on(self) -> bool | None:
-        return self.coordinator.qmod_stale
-
-
-class AxpertQpiriStaleBinarySensor(AxpertDiagnosticEntity, BinarySensorEntity):
-    """ON = les réglages onduleur affichés (QPIRI) datent d'une lecture
-    précédente, la plus récente ayant échoué."""
-
-    _attr_device_class = BinarySensorDeviceClass.PROBLEM
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
-
-    def __init__(self, coordinator: AxpertCoordinator) -> None:
-        super().__init__(coordinator, "qpiri_stale")
-        self._attr_name = "Axpert QPIRI Stale"
-
-    @property
-    def is_on(self) -> bool | None:
-        return self.coordinator.qpiri_stale
     async_add_entities(entities)
 
 
@@ -123,7 +102,7 @@ class AxpertCommunicationBinarySensor(AxpertDiagnosticEntity, BinarySensorEntity
 
 class AxpertDataStaleBinarySensor(AxpertDiagnosticEntity, BinarySensorEntity):
     """ON = les valeurs affichées datent d'un cycle précédent (échec
-    transitoire en cours, dans la période de grâce)."""
+    transitoire GLOBAL en cours, dans la période de grâce)."""
 
     _attr_device_class = BinarySensorDeviceClass.PROBLEM
     _attr_entity_category = EntityCategory.DIAGNOSTIC
@@ -136,5 +115,36 @@ class AxpertDataStaleBinarySensor(AxpertDiagnosticEntity, BinarySensorEntity):
     def is_on(self) -> bool | None:
         return self.coordinator.data_stale
 
-    entities.append(AxpertQmodStaleBinarySensor(coordinator))
-    entities.append(AxpertQpiriStaleBinarySensor(coordinator))
+
+class AxpertQmodStaleBinarySensor(AxpertDiagnosticEntity, BinarySensorEntity):
+    """ON = le dernier mode onduleur (QMOD) affiché date d'une tentative
+    précédente réussie, la lecture la plus récente ayant échoué. Distinct
+    de Data Stale : le cycle global peut très bien avoir réussi (QPIGS
+    ok) alors que ce drapeau est actif."""
+
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator: AxpertCoordinator) -> None:
+        super().__init__(coordinator, "qmod_stale")
+        self._attr_name = "Axpert QMOD Stale"
+
+    @property
+    def is_on(self) -> bool | None:
+        return self.coordinator.qmod_stale
+
+
+class AxpertQpiriStaleBinarySensor(AxpertDiagnosticEntity, BinarySensorEntity):
+    """ON = les réglages onduleur affichés (QPIRI) datent d'une lecture
+    précédente, la plus récente ayant échoué."""
+
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator: AxpertCoordinator) -> None:
+        super().__init__(coordinator, "qpiri_stale")
+        self._attr_name = "Axpert QPIRI Stale"
+
+    @property
+    def is_on(self) -> bool | None:
+        return self.coordinator.qpiri_stale

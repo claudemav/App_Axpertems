@@ -206,6 +206,8 @@ class AxpertCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self.hass.async_add_executor_job(
                 self._client.set_output_source_priority, mode
             )
+        except AxpertCommandRejectedError:
+            raise
         except AxpertError as err:
             raise UpdateFailed(str(err)) from err
         self._force_qpiri_refresh()
@@ -246,6 +248,13 @@ class AxpertCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise UpdateFailed(str(err)) from err
         self._force_qpiri_refresh()
         await self.async_request_refresh()
+
+    async def async_send_raw(self, command: str) -> str:
+        """Diagnostic : envoie une commande brute et retourne la réponse
+        telle quelle. Utile pour tester un format de commande sur un
+        clone PI30 dont le firmware diverge du standard (ex: largeur de
+        padding numérique différente pour MCHGC/MUCHGC)."""
+        return await self.hass.async_add_executor_job(self._client.send_raw, command)
 
     async def async_shutdown(self) -> None:
         await self.hass.async_add_executor_job(self._safe_close)

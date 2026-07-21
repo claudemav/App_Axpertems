@@ -31,5 +31,10 @@ async def async_get_config_entry_diagnostics(
             "last_success": coordinator.last_success,
             "last_error": coordinator.last_error,
             "data_stale": coordinator.data_stale,
+            "qmod_stale": coordinator.qmod_stale,
+            "qmod_last_error": coordinator.qmod_last_error,
+            "qpiri_stale": coordinator.qpiri_stale,
+            "qpiri_last_error": coordinator.qpiri_last_error,
+            "partial_error": coordinator.partial_error,
         },
     }

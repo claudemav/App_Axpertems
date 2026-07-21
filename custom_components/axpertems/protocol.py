@@ -194,10 +194,23 @@ CHARGER_PRIORITY_COMMANDS = {
 
 
 def build_max_charging_current_command(amps: int) -> str:
-    return f"MCHGC{amps:03d}"
+    """MNCHGC — CONFIRMÉ empiriquement (QPIRI avant/après : 10A -> 30A) :
+    ce firmware Victor NM-ECO utilise MNCHGC et non MCHGC (qui n'existe
+    apparemment pas sur ce modèle, NAK systématique quel que soit le
+    format testé). 3 chiffres, SANS numéro d'unité en parallèle —
+    contrairement à la variante MNCHGC<m><nnn> à 4 chiffres documentée
+    dans le manuel PIP-HS/MS/MSX, qui ne correspond pas à ce modèle.
+    Fragmentation connue et documentée entre variantes de clones PI30."""
+    return f"MNCHGC{amps:03d}"
 
 
 def build_max_utility_charging_current_command(amps: int) -> str:
+    """MUCHGC — CONFIRMÉ empiriquement (QPIRI avant/après : 2A -> 10A,
+    ACK propre) : format 3 chiffres standard. Le correctif précédent
+    (4 chiffres, basé sur une référence communautaire esphome-pipsolar)
+    était erroné pour ce modèle précis — je reviens donc au format 3
+    chiffres d'origine, maintenant validé par test réel plutôt que par
+    une source externe."""
     return f"MUCHGC{amps:03d}"
 
 

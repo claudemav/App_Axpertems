@@ -7,11 +7,13 @@ from typing import Any
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
 from .coordinator import AxpertCoordinator
 from .entity import AxpertEntity
+from .exceptions import AxpertCommandRejectedError
 from .protocol import CHARGER_PRIORITY_COMMANDS, OUTPUT_MODE_COMMANDS
 
 OPTIONS = list(OUTPUT_MODE_COMMANDS)
@@ -56,7 +58,12 @@ class AxpertOutputModeSelect(AxpertEntity, SelectEntity):
         return _PRIORITY_TO_OPTION.get(priority)
 
     async def async_select_option(self, option: str) -> None:
-        await self.coordinator.async_set_output_mode(option)
+        try:
+            await self.coordinator.async_set_output_mode(option)
+        except AxpertCommandRejectedError as err:
+            raise HomeAssistantError(
+                f"L'onduleur a refusé le mode de sortie « {option} »."
+            ) from err
 
 
 class AxpertChargerPrioritySelect(AxpertEntity, SelectEntity):
@@ -75,7 +82,12 @@ class AxpertChargerPrioritySelect(AxpertEntity, SelectEntity):
         return _CHARGER_PRIORITY_TO_OPTION.get(priority)
 
     async def async_select_option(self, option: str) -> None:
-        await self.coordinator.async_set_charger_priority(option)
+        try:
+            await self.coordinator.async_set_charger_priority(option)
+        except AxpertCommandRejectedError as err:
+            raise HomeAssistantError(
+                f"L'onduleur a refusé la priorité de charge « {option} »."
+            ) from err
 
 
 class AxpertMaxChargingCurrentSelect(AxpertEntity, SelectEntity):
@@ -101,7 +113,18 @@ class AxpertMaxChargingCurrentSelect(AxpertEntity, SelectEntity):
         return str(int(value)) if value is not None else None
 
     async def async_select_option(self, option: str) -> None:
-        await self.coordinator.async_set_max_charging_current(int(option))
+        try:
+            await self.coordinator.async_set_max_charging_current(int(option))
+        except AxpertCommandRejectedError as err:
+            # NAK réel de l'onduleur (palier non accepté) : erreur
+            # attendue et informative pour l'utilisateur, pas une
+            # exception inattendue à laisser remonter brute jusqu'à
+            # l'UI (voir logs du 20/07, MCHGC010/020/030 rejetés).
+            raise HomeAssistantError(
+                f"L'onduleur a refusé le courant de charge max {option}A "
+                f"(réponse NAK). Ce palier n'est peut-être pas supporté "
+                f"par ce modèle malgré la découverte QMCHGCR."
+            ) from err
 
 
 class AxpertMaxUtilityChargingCurrentSelect(AxpertEntity, SelectEntity):
@@ -127,4 +150,11 @@ class AxpertMaxUtilityChargingCurrentSelect(AxpertEntity, SelectEntity):
         return str(int(value)) if value is not None else None
 
     async def async_select_option(self, option: str) -> None:
-        await self.coordinator.async_set_max_utility_charging_current(int(option))
+        try:
+            await self.coordinator.async_set_max_utility_charging_current(int(option))
+        except AxpertCommandRejectedError as err:
+            raise HomeAssistantError(
+                f"L'onduleur a refusé le courant de charge réseau max {option}A "
+                f"(réponse NAK). Ce palier n'est peut-être pas supporté "
+                f"par ce modèle malgré la découverte QMCHGCR."
+            ) from err
