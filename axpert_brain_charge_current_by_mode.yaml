@@ -1,0 +1,198 @@
+# =====================================================================
+# AXPERT BRAIN — Courant de charge selon le mode de sortie
+#
+#   Mode E2C (réseau)       : MNCHGC = 10A, MUCHGC = 2A
+#   Mode SOLAIRE / BATTERIE : MNCHGC = 40A, MUCHGC = 2A
+#
+# GESTION DES CHANGEMENTS MANUELS (dashboard, panneau, test diagnostic) :
+# Chaque select de courant a son propre verrou manuel. Tant qu'il est
+# actif, cette automation ignore ce select. Dès que le verrou est
+# désactivé (dashboard), une RESYNCHRONISATION IMMÉDIATE est déclenchée
+# (trigger dédié ci-dessous) : pas besoin d'attendre un changement de
+# mode ou un redémarrage HA pour que la bonne valeur soit réappliquée.
+# =====================================================================
+
+input_number:
+
+  axpert_charge_current_grid_a:
+    name: Axpert Courant de charge toutes sources (mode réseau E2C)
+    icon: mdi:current-dc
+    min: 0
+    max: 100
+    step: 1
+    initial: 10
+    unit_of_measurement: "A"
+
+  axpert_charge_current_solar_a:
+    name: Axpert Courant de charge toutes sources (mode solaire/batterie)
+    icon: mdi:current-dc
+    min: 0
+    max: 100
+    step: 1
+    initial: 40
+    unit_of_measurement: "A"
+
+  axpert_utility_charge_current_a:
+    name: Axpert Courant de charge réseau max (fixe)
+    icon: mdi:current-ac
+    min: 0
+    max: 100
+    step: 1
+    initial: 2
+    unit_of_measurement: "A"
+
+input_boolean:
+
+  axpert_manual_lock_max_charging_current:
+    name: Axpert Verrou manuel Courant de charge (toutes sources)
+    icon: mdi:lock
+
+  axpert_manual_lock_max_utility_charging_current:
+    name: Axpert Verrou manuel Courant de charge réseau
+    icon: mdi:lock
+
+  axpert_command_in_progress_max_charging_current:
+    name: Axpert Brain — Commande courant charge en cours (interne)
+    icon: mdi:cog-sync
+
+  axpert_command_in_progress_max_utility_charging_current:
+    name: Axpert Brain — Commande courant charge réseau en cours (interne)
+    icon: mdi:cog-sync
+
+automation:
+
+  - alias: "Axpert Brain — Détection changement manuel Courant Charge"
+    id: axpert_brain_manual_detect_max_charging_current
+    mode: queued
+    triggers:
+      - trigger: state
+        entity_id: select.debarras_maison_axpert_max_charging_current
+    conditions:
+      - condition: template
+        value_template: >
+          {{ not is_state('input_boolean.axpert_command_in_progress_max_charging_current', 'on') }}
+      - condition: template
+        value_template: >
+          {{ trigger.from_state is not none and trigger.to_state is not none
+             and trigger.from_state.state != trigger.to_state.state }}
+    actions:
+      - action: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.axpert_manual_lock_max_charging_current
+
+  - alias: "Axpert Brain — Détection changement manuel Courant Charge Réseau"
+    id: axpert_brain_manual_detect_max_utility_charging_current
+    mode: queued
+    triggers:
+      - trigger: state
+        entity_id: select.debarras_maison_axpert_max_utility_charging_current
+    conditions:
+      - condition: template
+        value_template: >
+          {{ not is_state('input_boolean.axpert_command_in_progress_max_utility_charging_current', 'on') }}
+      - condition: template
+        value_template: >
+          {{ trigger.from_state is not none and trigger.to_state is not none
+             and trigger.from_state.state != trigger.to_state.state }}
+    actions:
+      - action: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.axpert_manual_lock_max_utility_charging_current
+
+  - alias: "Axpert Brain — Sécurité command_in_progress courant bloqué"
+    id: axpert_brain_charge_current_command_in_progress_timeout
+    triggers:
+      - trigger: state
+        entity_id:
+          - input_boolean.axpert_command_in_progress_max_charging_current
+          - input_boolean.axpert_command_in_progress_max_utility_charging_current
+        to: "on"
+        for:
+          seconds: 15
+    actions:
+      - action: input_boolean.turn_off
+        target:
+          entity_id: "{{ trigger.entity_id }}"
+
+  - alias: "Axpert Brain — Courant de charge selon mode de sortie"
+    id: axpert_brain_charge_current_by_mode
+    mode: single
+
+    triggers:
+      - trigger: state
+        entity_id: select.debarras_maison_mode_de_sortie
+      - trigger: homeassistant
+        event: start
+      # Resynchronisation immédiate dès qu'un verrou manuel est levé —
+      # pas besoin d'attendre un changement de mode ou un redémarrage.
+      - trigger: state
+        entity_id:
+          - input_boolean.axpert_manual_lock_max_charging_current
+          - input_boolean.axpert_manual_lock_max_utility_charging_current
+        to: "off"
+
+    conditions:
+      - condition: template
+        value_template: >
+          {{ trigger.platform == 'homeassistant'
+             or (trigger.entity_id == 'select.debarras_maison_mode_de_sortie'
+                 and trigger.from_state is not none and trigger.to_state is not none
+                 and trigger.from_state.state != trigger.to_state.state
+                 and trigger.to_state.state not in ['unknown', 'unavailable'])
+             or trigger.entity_id in ['input_boolean.axpert_manual_lock_max_charging_current',
+                                      'input_boolean.axpert_manual_lock_max_utility_charging_current'] }}
+
+    variables:
+      current_mode: "{{ states('select.debarras_maison_mode_de_sortie') }}"
+      target_mchgc: >
+        {% if current_mode == 'E2C' %}
+          {{ states('input_number.axpert_charge_current_grid_a')|int(10) }}
+        {% else %}
+          {{ states('input_number.axpert_charge_current_solar_a')|int(40) }}
+        {% endif %}
+      target_muchgc: "{{ states('input_number.axpert_utility_charge_current_a')|int(2) }}"
+      current_mchgc: "{{ states('select.debarras_maison_axpert_max_charging_current') }}"
+      current_muchgc: "{{ states('select.debarras_maison_axpert_max_utility_charging_current') }}"
+      mchgc_locked: "{{ is_state('input_boolean.axpert_manual_lock_max_charging_current', 'on') }}"
+      muchgc_locked: "{{ is_state('input_boolean.axpert_manual_lock_max_utility_charging_current', 'on') }}"
+
+    actions:
+      - if:
+          - condition: template
+            value_template: "{{ not mchgc_locked and current_mchgc != target_mchgc|string }}"
+        then:
+          - action: input_boolean.turn_on
+            target:
+              entity_id: input_boolean.axpert_command_in_progress_max_charging_current
+          - action: select.select_option
+            target:
+              entity_id: select.debarras_maison_axpert_max_charging_current
+            data:
+              option: "{{ target_mchgc|string }}"
+          - wait_template: >
+              {{ states('select.debarras_maison_axpert_max_charging_current') == target_mchgc|string }}
+            timeout: "00:00:10"
+            continue_on_timeout: true
+          - action: input_boolean.turn_off
+            target:
+              entity_id: input_boolean.axpert_command_in_progress_max_charging_current
+
+      - if:
+          - condition: template
+            value_template: "{{ not muchgc_locked and current_muchgc != target_muchgc|string }}"
+        then:
+          - action: input_boolean.turn_on
+            target:
+              entity_id: input_boolean.axpert_command_in_progress_max_utility_charging_current
+          - action: select.select_option
+            target:
+              entity_id: select.debarras_maison_axpert_max_utility_charging_current
+            data:
+              option: "{{ target_muchgc|string }}"
+          - wait_template: >
+              {{ states('select.debarras_maison_axpert_max_utility_charging_current') == target_muchgc|string }}
+            timeout: "00:00:10"
+            continue_on_timeout: true
+          - action: input_boolean.turn_off
+            target:
+              entity_id: input_boolean.axpert_command_in_progress_max_utility_charging_current
